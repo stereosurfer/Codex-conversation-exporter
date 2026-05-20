@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import datetime as dt
+import hashlib
 import json
 import re
+import shutil
 from pathlib import Path
+from urllib.parse import quote
 
 
 CODEX_HOME = Path.home() / ".codex"
@@ -67,6 +70,13 @@ def slugify(value):
     return value[:80] or "codex-conversation"
 
 
+def export_basename(record):
+    title = record.get("thread_name") or record.get("id") or "Codex conversation"
+    updated_at = record.get("updated_at") or ""
+    short_id = (record.get("id") or "unknown")[:8]
+    return f"{timestamp_for_filename(updated_at)}__{slugify(title)}__thread-{short_id}"
+
+
 def choose_record(args, index):
     if args.id:
         for record in index:
@@ -124,44 +134,136 @@ def should_skip_user_text(text):
     return any(stripped.startswith(prefix) for prefix in skip_prefixes)
 
 
-def extract_messages(path):
-    messages = []
+def iter_events(path):
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             try:
-                event = json.loads(line)
+                yield json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if event.get("type") != "response_item":
+
+
+def extract_messages(path):
+    messages = []
+    for event in iter_events(path):
+        if event.get("type") != "response_item":
+            continue
+        payload = event.get("payload") or {}
+        if payload.get("type") != "message":
+            continue
+        role = payload.get("role")
+        if role not in {"user", "assistant"}:
+            continue
+        parts = []
+        for text in iter_message_text(payload.get("content")):
+            if role == "user" and should_skip_user_text(text):
                 continue
-            payload = event.get("payload") or {}
-            if payload.get("type") != "message":
-                continue
-            role = payload.get("role")
-            if role not in {"user", "assistant"}:
-                continue
-            parts = []
-            for text in iter_message_text(payload.get("content")):
-                if role == "user" and should_skip_user_text(text):
-                    continue
-                parts.append(text.rstrip())
-            body = "\n\n".join(parts).strip()
-            if body:
-                messages.append({
-                    "timestamp": event.get("timestamp"),
-                    "role": role,
-                    "text": body,
-                })
+            parts.append(text.rstrip())
+        body = "\n\n".join(parts).strip()
+        if body:
+            messages.append({
+                "timestamp": event.get("timestamp"),
+                "role": role,
+                "text": body,
+            })
     return messages
 
 
-def write_markdown(record, source_path, messages, output_dir):
-    output_dir.mkdir(parents=True, exist_ok=True)
+def extract_mentioned_paths(text):
+    paths = []
+    if "Files mentioned by the user" not in text:
+        return paths
+    for line in text.splitlines():
+        match = re.search(r":\s+(/.+)$", line.strip())
+        if match:
+            paths.append(match.group(1).strip())
+    return paths
+
+
+def collect_asset_references(path):
+    refs = []
+    seen = set()
+
+    def add_ref(source, kind, timestamp):
+        if not source:
+            return
+        key = source
+        if key in seen:
+            return
+        seen.add(key)
+        refs.append({
+            "kind": kind,
+            "source": source,
+            "timestamp": timestamp,
+        })
+
+    for event in iter_events(path):
+        payload = event.get("payload") or {}
+        timestamp = event.get("timestamp")
+        if event.get("type") == "event_msg" and payload.get("type") == "user_message":
+            for source in payload.get("local_images") or []:
+                add_ref(source, "local_image", timestamp)
+            for source in extract_mentioned_paths(payload.get("message", "")):
+                add_ref(source, "mentioned_file", timestamp)
+        if event.get("type") == "response_item" and payload.get("type") == "message" and payload.get("role") == "user":
+            for text in iter_message_text(payload.get("content")):
+                for source in extract_mentioned_paths(text):
+                    add_ref(source, "mentioned_file", timestamp)
+    return refs
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def copy_assets(asset_refs, assets_dir):
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    copied_by_hash = {}
+    manifest = {"copied": [], "missing": []}
+
+    for index, ref in enumerate(asset_refs, 1):
+        source = Path(ref["source"]).expanduser()
+        entry = {
+            "id": f"A{index:03d}",
+            "kind": ref["kind"],
+            "source": str(source),
+            "timestamp": ref.get("timestamp"),
+        }
+        if not source.exists() or not source.is_file():
+            entry["reason"] = "source file not found"
+            manifest["missing"].append(entry)
+            continue
+
+        digest = file_digest(source)
+        safe_name = slugify(source.name)
+        target_name = copied_by_hash.get(digest)
+        if not target_name:
+            target_name = f"sha256-{digest[:12]}__{safe_name}"
+            shutil.copy2(source, assets_dir / target_name)
+            copied_by_hash[digest] = target_name
+
+        entry.update({
+            "sha256": digest,
+            "file": f"assets/{target_name}",
+            "deduplicated": digest in copied_by_hash and len([
+                item for item in manifest["copied"] if item.get("sha256") == digest
+            ]) > 0,
+        })
+        manifest["copied"].append(entry)
+    return manifest
+
+
+def markdown_link(path):
+    return quote(path, safe="/-_.")
+
+
+def build_markdown(record, source_path, messages, asset_manifest=None):
     title = record.get("thread_name") or record.get("id") or "Codex conversation"
     updated_at = record.get("updated_at") or ""
-    short_id = (record.get("id") or "unknown")[:8]
-    filename = f"{timestamp_for_filename(updated_at)}__{slugify(title)}__thread-{short_id}.md"
-    output_path = output_dir / filename
     exported_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
     lines = [
@@ -176,6 +278,20 @@ def write_markdown(record, source_path, messages, output_dir):
         f"# {title}",
         "",
     ]
+    if asset_manifest:
+        copied = asset_manifest.get("copied", [])
+        missing = asset_manifest.get("missing", [])
+        if copied or missing:
+            lines.extend(["## Attachments", ""])
+            for item in copied:
+                lines.append(
+                    f'- {item["id"]}: [{Path(item["file"]).name}]({markdown_link(item["file"])}) '
+                    f'from `{item["kind"]}`'
+                )
+            for item in missing:
+                lines.append(f'- {item["id"]}: missing `{item["source"]}` ({item["reason"]})')
+            lines.append("")
+
     for message in messages:
         heading = "User" if message["role"] == "user" else "Assistant"
         lines.append(f"## {heading}")
@@ -186,7 +302,28 @@ def write_markdown(record, source_path, messages, output_dir):
         lines.append(message["text"])
         lines.append("")
 
-    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_markdown(record, source_path, messages, output_dir):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{export_basename(record)}.md"
+    output_path.write_text(build_markdown(record, source_path, messages), encoding="utf-8")
+    return output_path
+
+
+def write_bundle(record, source_path, messages, output_dir):
+    bundle_dir = output_dir / export_basename(record)
+    assets_dir = bundle_dir / "assets"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    asset_refs = collect_asset_references(source_path)
+    manifest = copy_assets(asset_refs, assets_dir)
+    (bundle_dir / "assets-manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    output_path = bundle_dir / "conversation.md"
+    output_path.write_text(build_markdown(record, source_path, messages, manifest), encoding="utf-8")
     return output_path
 
 
@@ -205,6 +342,11 @@ def build_parser():
     selector.add_argument("--list", action="store_true", help="List recent indexed threads.")
     parser.add_argument("--limit", type=int, default=30, help="Number of threads to show with --list.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory for Markdown exports.")
+    parser.add_argument(
+        "--include-assets",
+        action="store_true",
+        help="Copy explicitly attached or mentioned local files into an assets folder and write a manifest.",
+    )
     return parser
 
 
@@ -224,9 +366,11 @@ def main():
     if not messages:
         raise SystemExit(f"No visible user/assistant messages found in: {source_path}")
 
-    print(write_markdown(record, source_path, messages, args.output_dir))
+    if args.include_assets:
+        print(write_bundle(record, source_path, messages, args.output_dir))
+    else:
+        print(write_markdown(record, source_path, messages, args.output_dir))
 
 
 if __name__ == "__main__":
     main()
-

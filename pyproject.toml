@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-conversation-exporter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Export local Codex Desktop conversations on macOS to clean Markdown."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -26,4 +26,3 @@ codex-conversation-exporter = "codex_conversation_exporter.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

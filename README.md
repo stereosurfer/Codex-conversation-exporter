@@ -28,6 +28,8 @@ This is a small, friendly tool for people who want to keep, search, or share sel
 - Export by thread id
 - 輸出乾淨 Markdown
 - Save clean Markdown
+- 選擇性匯出圖片與明確提到的本機檔案
+- Optionally export images and explicitly mentioned local files
 - 過濾 system/developer prompt、工具呼叫、加密推理與 raw logs
 - Filter out system/developer prompts, tool calls, encrypted reasoning, and raw logs
 
@@ -157,6 +159,38 @@ YYYY-MM-DD_HHMMSS__thread-title__thread-shortid.md
 
 You can open it with any Markdown editor, or just read it with a normal text editor.
 
+### 7. 連圖片或檔案一起匯出
+
+### 7. Export with images or files
+
+如果你想把對話中明確附上的圖片、截圖或本機檔案一起保存，加上 `--include-assets`。
+
+If you want to keep explicitly attached images, screenshots, or local files too, add `--include-assets`.
+
+```bash
+codex-conversation-exporter --latest --include-assets
+```
+
+這時候工具會建立一個對話資料夾，而不是只有一個 Markdown 檔。
+
+In this mode, the tool creates one folder for the conversation instead of only one Markdown file.
+
+```text
+YYYY-MM-DD_HHMMSS__thread-title__thread-shortid/
+  conversation.md
+  assets/
+    sha256-a1b2c3d4e5f6__screenshot.png
+  assets-manifest.json
+```
+
+`conversation.md` 會列出附件，`assets/` 會保存檔案，`assets-manifest.json` 會記錄原始路徑、hash、是否缺檔。
+
+`conversation.md` lists the attachments, `assets/` stores the files, and `assets-manifest.json` records source paths, hashes, and missing files.
+
+同一個檔案被引用很多次時，只會複製一份。
+
+If the same file is referenced many times, it is copied only once.
+
 ## 隱私
 
 ## Privacy
@@ -168,6 +202,10 @@ This tool only reads local Codex Desktop files on your Mac. It does not upload a
 分享前請自己再看一次匯出的 Markdown。工具會過濾內部紀錄，但你自己輸入的對話仍然可能包含私人資訊。
 
 Please review exported Markdown before sharing it. The exporter filters internal records, but your conversations may still contain private information that you typed.
+
+`--include-assets` 會複製對話中明確附上或提到的本機檔案。分享資料夾前，請也檢查 `assets/` 裡面的內容。
+
+`--include-assets` copies local files that were explicitly attached or mentioned in the conversation. Before sharing a folder, also review the files inside `assets/`.
 
 ## 歡迎貢獻
 
