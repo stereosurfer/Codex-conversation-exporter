@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-conversation-exporter"
+version = "0.1.0"
+description = "Export local Codex Desktop conversations on macOS to clean Markdown."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "stereosurfer" }
+]
+keywords = ["codex", "conversation", "export", "markdown", "macos"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Text Processing :: Markup :: Markdown",
+]
+
+[project.scripts]
+codex-conversation-exporter = "codex_conversation_exporter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
