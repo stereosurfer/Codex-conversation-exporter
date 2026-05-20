@@ -53,9 +53,25 @@ python3 -m pip install -e .
 
 ## How to Use
 
-### 1. 先看看有哪些對話
+### 1. 最簡單：在目前的 Codex 對話視窗說一句話
 
-### 1. See your conversations
+### 1. Easiest way: ask inside your current Codex chat
+
+如果你正在 Codex Desktop 裡，只要在目前對話視窗輸入：
+
+If you are already inside Codex Desktop, type this in the current chat:
+
+```text
+幫我匯出對話
+```
+
+Codex 會幫你把目前這串對話匯出成 Markdown。
+
+Codex will export the current conversation to Markdown for you.
+
+### 2. 先看看有哪些對話
+
+### 2. See your conversations
 
 在終端機貼上這行：
 
@@ -69,9 +85,9 @@ codex-conversation-exporter --list
 
 You will see a list of conversations. Each line has a time, an id, and a title.
 
-### 2. 匯出最新的一個對話
+### 3. 匯出最新的一個對話
 
-### 2. Export the latest conversation
+### 3. Export the latest conversation
 
 如果你只想匯出最新對話，貼上這行：
 
@@ -85,9 +101,9 @@ codex-conversation-exporter --latest
 
 It will create a Markdown file.
 
-### 3. 用標題找對話
+### 4. 用標題找對話
 
-### 3. Find a conversation by title
+### 4. Find a conversation by title
 
 如果你記得標題裡有某個字，例如「project planning」，貼上：
 
@@ -105,9 +121,9 @@ Chinese works too, for example:
 codex-conversation-exporter --query "專案規劃"
 ```
 
-### 4. 用 thread id 匯出
+### 5. 用 thread id 匯出
 
-### 4. Export by thread id
+### 5. Export by thread id
 
 如果你知道完整 thread id，貼上：
 
@@ -117,9 +133,9 @@ If you know the full thread id, paste:
 codex-conversation-exporter --id 01234567-89ab-cdef-0123-456789abcdef
 ```
 
-### 5. 找到匯出的檔案
+### 6. 找到匯出的檔案
 
-### 5. Find the exported file
+### 6. Find the exported file
 
 預設匯出到：
 
